@@ -16,8 +16,14 @@
 #   except in compliance with the License. You may obtain a copy of
 #   the License at http://www.apache.org/licenses/LICENSE-2.0 .
 #
-import pyuno
+
+# Special modification to make uno load on Arch
+import os
 import sys
+sys.path.append("/usr/lib/libreoffice/program/")
+os.putenv("URE_BOOTSTRAP", "vnd.sun.star.pathname:/usr/lib/libreoffice/program/fundamentalrc")
+
+import pyuno
 import traceback
 import warnings
 

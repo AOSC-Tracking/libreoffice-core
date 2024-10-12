@@ -50,6 +50,7 @@ $(call gb_ExternalProject_get_state_target,firebird,build):
 			$(if $(HAVE_GCC_FNO_SIZED_DEALLOCATION),-fno-sized-deallocation -fno-delete-null-pointer-checks) \
 			$(call gb_ExternalProject_get_build_flags,firebird) \
 			$(if $(ENABLE_DEBUG),$(if $(filter MSC,$(COM)),-Od -Z7)) \
+			$(if $(ENABLE_LTO),$(gb_LTOFLAGS)) \
 		" \
 		&& export CXXFLAGS=" \
 			$(BOOST_CXXFLAGS) \
@@ -60,6 +61,7 @@ $(call gb_ExternalProject_get_state_target,firebird,build):
 			$(if $(filter TRUE,$(COM_IS_CLANG)), -Wno-c++11-narrowing) \
 			$(call gb_ExternalProject_get_build_flags,firebird) \
 			$(if $(ENABLE_DEBUG),$(if $(filter MSC,$(COM)),-Od -Z7)) \
+			$(if $(ENABLE_LTO),$(gb_LTOFLAGS)) \
 		" \
 		&& export LDFLAGS=" \
 			$(call gb_ExternalProject_get_link_flags,firebird) \
@@ -71,6 +73,7 @@ $(call gb_ExternalProject_get_state_target,firebird,build):
 			) \
 			$(if $(SYSTEM_ICU),$(ICU_LIBS), \
 				-L$(gb_UnpackedTarball_workdir)/icu/source/lib \
+				$(if $(ENABLE_LTO),$(gb_LTOFLAGS)) \
 			) \
 		" \
 		&& export LIBREOFFICE_ICU_LIB="$(gb_UnpackedTarball_workdir)/icu/source/lib" \

@@ -1,0 +1,162 @@
+From 0a56f52282ede1404a509e5b6d16365fd2e9b5b3 Mon Sep 17 00:00:00 2001
+From: Bingwu Zhang <xtex@aosc.io>
+Date: Thu, 6 Feb 2025 23:34:34 +0800
+Subject: [PATCH 1/4] [loong64] Explicitly cast vector types around LSX
+ intrinsics
+X-Developer-Signature: v=1; a=openpgp-sha256; l=6961; i=xtex@aosc.io;
+ h=from:subject; bh=LP0lBN41umXLY0sL3K4hnjMP/cIcIGqkNfo2OxLxbSI=;
+ b=owGbwMvMwCW2U4Ij7wZL9ETG02pJDOnLZbKzf64LXvyd7dHZfsVnmbse9J9LXi5xceI2J5k+3
+ tr831ozO0pZGMS4GGTFFFmKDBu8WXXS+UWXlcvCzGFlAhnCwMUpABPZx8XwPy7U8OIp/tdf53Xm
+ KK2W9Ahm2GV1Q0U478e/xW9Xve8zes/IsI67h3vzo1srF7mc3aXJZNLu4l70gcdE9Fal+s+J4qf
+ VOQE=
+X-Developer-Key: i=xtex@aosc.io; a=openpgp;
+ fpr=7231804B052C670F15A6771DB918086ED8045B91
+
+In I5ec3ae47f69d520218619721bed5a48eb87da194
+("[loong64] Optimize gauss blur imagefilter."), LSX vectorization
+support was added to the gauss blur imagefilter.
+Some code added in that change heavily depended on the compiler's
+implicit conversions between vectors with differing element count and
+types.
+
+GCC provides a '-flax-vector-conversions' option to toggle the implicit
+conversion behavior, saying that it "should not be used for new code".
+On some (most?) systems, that option is disabled by default, leading to
+compilation errors, because all LSX intrinsics functions from
+lsxintrin.h expect __m128i arguments and return __m128i values.
+
+This CL wraps vector intrinsics invocations with explicit type
+conversions, to avoid implicit conversion errors.
+Replacing v4u32 variables with __m128i is not preferred because v4u32 do
+better at reflecting the number and type of elements of vectors, while
+__m128i only shows the bit size.
+
+Fixes: I5ec3ae47f69d520218619721bed5a48eb87da194
+Change-Id: Ibe6082c8e6cf1e4f9e1976caa8967644dd1eacdf
+Signed-off-by: Bingwu Zhang <xtex@aosc.io>
+---
+ AUTHORS                   |  1 +
+ src/core/SkBlurEngine.cpp | 53 ++++++++++++++++++++-------------------
+ 2 files changed, 28 insertions(+), 26 deletions(-)
+
+diff --git a/AUTHORS b/AUTHORS
+index f533d9a8e5bf..03d0ac82a412 100755
+--- a/AUTHORS
++++ b/AUTHORS
+@@ -24,6 +24,7 @@ Amazon, Inc <*@amazon.com>
+ Anthony Catel <paraboul@gmail.com>
+ Andrew Kurushin <ajax16384@gmail.com>
+ Bharat Ahuja <ahujabharat93@gmail.com>
++Bingwu Zhang <xtex@aosc.io>
+ Biswapriyo Nath <nathbappai@gmail.com>
+ Brian Salomon <briansalomon@gmail.com>
+ Callum Moffat <smartercallum@gmail.com>
+diff --git a/src/core/SkBlurEngine.cpp b/src/core/SkBlurEngine.cpp
+index 2c18eb0fb2e7..064937ba861a 100644
+--- a/src/core/SkBlurEngine.cpp
++++ b/src/core/SkBlurEngine.cpp
+@@ -330,62 +330,63 @@ private:
+         skvx::Vec<4, uint32_t>* buffer0Cursor = fBuffer0Cursor;
+         skvx::Vec<4, uint32_t>* buffer1Cursor = fBuffer1Cursor;
+         skvx::Vec<4, uint32_t>* buffer2Cursor = fBuffer2Cursor;
+-        v4u32 sum0 = __lsx_vld(fSum0, 0); // same as skvx::Vec<4, uint32_t>::Load(fSum0);
+-        v4u32 sum1 = __lsx_vld(fSum1, 0);
+-        v4u32 sum2 = __lsx_vld(fSum2, 0);
++        v4u32 sum0 = (v4u32)__lsx_vld(fSum0, 0);  // same as skvx::Vec<4, uint32_t>::Load(fSum0);
++        v4u32 sum1 = (v4u32)__lsx_vld(fSum1, 0);
++        v4u32 sum2 = (v4u32)__lsx_vld(fSum2, 0);
+ 
+         auto processValue = [&](v4u32& vLeadingEdge){
+           sum0 += vLeadingEdge;
+           sum1 += sum0;
+           sum2 += sum1;
+ 
+-          v4u32 divisorFactor = __lsx_vreplgr2vr_w(fDivider.divisorFactor());
+-          v4u32 blurred = __lsx_vmuh_w(divisorFactor, sum2);
++          v4u32 divisorFactor = (v4u32)__lsx_vreplgr2vr_w(fDivider.divisorFactor());
++          v4u32 blurred = (v4u32)__lsx_vmuh_w((__m128i)divisorFactor, (__m128i)sum2);
+ 
+-          v4u32 buffer2Value = __lsx_vld(buffer2Cursor, 0); //Not fBuffer0Cursor, out of bounds.
++          v4u32 buffer2Value =
++                  (v4u32)__lsx_vld(buffer2Cursor, 0);  // Not fBuffer0Cursor, out of bounds.
+           sum2 -= buffer2Value;
+-          __lsx_vst(sum1, (void *)buffer2Cursor, 0);
++          __lsx_vst((__m128i)sum1, (void*)buffer2Cursor, 0);
+           buffer2Cursor = (buffer2Cursor + 1) < fBuffersEnd ? buffer2Cursor + 1 : fBuffer2;
+-          v4u32 buffer1Value = __lsx_vld(buffer1Cursor, 0);
++          v4u32 buffer1Value = (v4u32)__lsx_vld(buffer1Cursor, 0);
+           sum1 -= buffer1Value;
+-          __lsx_vst(sum0, (void *)buffer1Cursor, 0);
++          __lsx_vst((__m128i)sum0, (void*)buffer1Cursor, 0);
+           buffer1Cursor = (buffer1Cursor + 1) < fBuffer2 ? buffer1Cursor + 1 : fBuffer1;
+-          v4u32 buffer0Value = __lsx_vld(buffer0Cursor, 0);
++          v4u32 buffer0Value = (v4u32)__lsx_vld(buffer0Cursor, 0);
+           sum0 -= buffer0Value;
+-          __lsx_vst(vLeadingEdge, (void *)buffer0Cursor, 0);
++          __lsx_vst((__m128i)vLeadingEdge, (void*)buffer0Cursor, 0);
+           buffer0Cursor = (buffer0Cursor + 1) < fBuffer1 ? buffer0Cursor + 1 : fBuffer0;
+ 
+           v16u8 shuf = {0x0,0x4,0x8,0xc,0x0};
+-          v16u8 ret = __lsx_vshuf_b(blurred, blurred, shuf);
++          v16u8 ret = (v16u8)__lsx_vshuf_b((__m128i)blurred, (__m128i)blurred, (__m128i)shuf);
+           return ret;
+         };
+ 
+-        v4u32 zero = __lsx_vldi(0x0);
++        v4u32 zero = (v4u32)__lsx_vldi(0x0);
+         if (!src && !dst) {
+             while (n --> 0) {
+                 (void)processValue(zero);
+             }
+         } else if (src && !dst) {
+             while (n --> 0) {
+-                v4u32 edge = __lsx_vinsgr2vr_w(zero, *src, 0);
+-                edge = __lsx_vilvl_b(zero, edge);
+-                edge = __lsx_vilvl_h(zero, edge);
++                v4u32 edge = (v4u32)__lsx_vinsgr2vr_w((__m128i)zero, *src, 0);
++                edge = (v4u32)__lsx_vilvl_b((__m128i)zero, (__m128i)edge);
++                edge = (v4u32)__lsx_vilvl_h((__m128i)zero, (__m128i)edge);
+                 (void)processValue(edge);
+                 src += srcStride;
+             }
+         } else if (!src && dst) {
+             while (n --> 0) {
+-                v4u32 ret = processValue(zero);
+-                __lsx_vstelm_w(ret, dst, 0, 0); // 3rd is offset, 4th is idx.
++                v4u32 ret = (v4u32)processValue(zero);
++                __lsx_vstelm_w((__m128i)ret, dst, 0, 0); // 3rd is offset, 4th is idx.
+                 dst += dstStride;
+             }
+         } else if (src && dst) {
+             while (n --> 0) {
+-                v4u32 edge = __lsx_vinsgr2vr_w(zero, *src, 0);
+-                edge = __lsx_vilvl_b(zero, edge);
+-                edge = __lsx_vilvl_h(zero, edge);
+-                v4u32 ret = processValue(edge);
+-                __lsx_vstelm_w(ret, dst, 0, 0);
++                v4u32 edge = (v4u32)__lsx_vinsgr2vr_w((__m128i)zero, *src, 0);
++                edge = (v4u32)__lsx_vilvl_b((__m128i)zero, (__m128i)edge);
++                edge = (v4u32)__lsx_vilvl_h((__m128i)zero, (__m128i)edge);
++                v4u32 ret = (v4u32)processValue(edge);
++                __lsx_vstelm_w((__m128i)ret, dst, 0, 0);
+                 src += srcStride;
+                 dst += dstStride;
+             }
+@@ -396,9 +397,9 @@ private:
+         fBuffer1Cursor = buffer1Cursor;
+         fBuffer2Cursor = buffer2Cursor;
+ 
+-        __lsx_vst(sum0, fSum0, 0);
+-        __lsx_vst(sum1, fSum1, 0);
+-        __lsx_vst(sum2, fSum2, 0);
++        __lsx_vst((__m128i)sum0, fSum0, 0);
++        __lsx_vst((__m128i)sum1, fSum1, 0);
++        __lsx_vst((__m128i)sum2, fSum2, 0);
+ #else
+         skvx::Vec<4, uint32_t>* buffer0Cursor = fBuffer0Cursor;
+         skvx::Vec<4, uint32_t>* buffer1Cursor = fBuffer1Cursor;
+
+base-commit: b988efa06f8aa3bfeaa18c5b8c716ff244ab43cf
+-- 
+2.48.1
+
